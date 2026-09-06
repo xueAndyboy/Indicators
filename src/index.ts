@@ -7,8 +7,13 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { readFileSync, readdirSync } from "fs";
+import { readFileSync, readdirSync, existsSync } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = process.env.INDICATORS_DIR || path.resolve(__dirname, "..");
 
 const server = new Server(
   {
@@ -51,15 +56,22 @@ const ExtractFunctionsSchema = z.object({
   indicatorName: z.string().describe("Name of the indicator file to extract functions from"),
 });
 
+const GetIndicatorContentSchema = z.object({
+  indicatorName: z.string().describe("Name of the indicator file to read"),
+  startLine: z.number().optional().describe("Optional starting line number (1-indexed)"),
+  endLine: z.number().optional().describe("Optional ending line number (1-indexed)"),
+});
+
 // Helper functions
 function getIndicatorFiles(pattern?: string): string[] {
   try {
-    const files = readdirSync(".");
+    const files = readdirSync(REPO_ROOT);
     return files.filter(file => {
-      // Filter out common non-indicator files
-      if (file.startsWith('.') || file.includes('package') || file.includes('tsconfig') ||
-          file.includes('Dockerfile') || file.endsWith('.js') || file.endsWith('.ts') ||
-          file.endsWith('.json') || file.endsWith('.md') || file.endsWith('.rar')) {
+      // Filter out non-indicator files
+      if (file.startsWith('.') || file.includes('node_modules') || file.includes('package') ||
+          file.includes('tsconfig') || file.includes('Dockerfile') || file.endsWith('.js') ||
+          file.endsWith('.ts') || file.endsWith('.json') || file.endsWith('.md') ||
+          file.endsWith('.yml') || file.endsWith('.yaml') || file.endsWith('.rar')) {
         return false;
       }
 
@@ -70,15 +82,27 @@ function getIndicatorFiles(pattern?: string): string[] {
       return true;
     });
   } catch (error) {
-    throw new Error(`Failed to read directory: ${error}`);
+    throw new Error(`Failed to read directory (${REPO_ROOT}): ${error}`);
   }
 }
 
+function resolveIndicatorPath(filename: string): string {
+  let targetPath = path.isAbsolute(filename) ? filename : path.join(REPO_ROOT, filename);
+  if (!existsSync(targetPath) && !filename.endsWith('.pine')) {
+    const withPine = path.isAbsolute(filename) ? `${filename}.pine` : path.join(REPO_ROOT, `${filename}.pine`);
+    if (existsSync(withPine)) {
+      return withPine;
+    }
+  }
+  return targetPath;
+}
+
 function readIndicatorFile(filename: string): string {
+  const targetPath = resolveIndicatorPath(filename);
   try {
-    return readFileSync(filename, 'utf-8');
+    return readFileSync(targetPath, 'utf-8');
   } catch (error) {
-    throw new Error(`Failed to read indicator file "${filename}": ${error}`);
+    throw new Error(`Failed to read indicator file "${filename}" at "${targetPath}": ${error}`);
   }
 }
 
@@ -172,6 +196,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "extract_functions",
         description: "Extract and list all functions from an indicator file",
         inputSchema: ExtractFunctionsSchema,
+      },
+      {
+        name: "get_indicator_content",
+        description: "Read the source code of a TradingView Pine Script indicator file",
+        inputSchema: GetIndicatorContentSchema,
       },
     ],
   };
@@ -292,38 +321,35 @@ ${analysis.inputs.length > 0 ? analysis.inputs.map(i => `- ${i.substring(0, 80)}
 
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].trim();
-          // Look for function definitions
-          if (line.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*\(/)) {
+          const funcMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*=>/) ||
+                            line.match(/^method\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*=>/);
+
+          if (funcMatch) {
+            const funcName = funcMatch[1];
             const functionStart = i;
             let functionEnd = i;
-            let braceCount = 0;
-            let inFunction = false;
 
-            // Find function body
-            for (let j = i; j < Math.min(i + 50, lines.length); j++) {
-              const currentLine = lines[j];
-              if (currentLine.includes('{')) {
-                inFunction = true;
-                braceCount++;
+            // Pine script function bodies are indented
+            for (let j = i + 1; j < lines.length; j++) {
+              const nextLine = lines[j];
+              if (nextLine.trim() === '') {
+                continue;
               }
-              if (currentLine.includes('}')) {
-                braceCount--;
-                if (braceCount === 0 && inFunction) {
-                  functionEnd = j;
-                  break;
-                }
+              // Indented with at least 2 spaces or tab
+              if (nextLine.startsWith('  ') || nextLine.startsWith('\t')) {
+                functionEnd = j;
+              } else {
+                break;
               }
             }
 
             const functionCode = lines.slice(functionStart, functionEnd + 1).join('\n');
-            if (functionCode.length > 0) {
-              functions.push({
-                name: line.split('(')[0],
-                startLine: functionStart + 1,
-                endLine: functionEnd + 1,
-                code: functionCode
-              });
-            }
+            functions.push({
+              name: funcName,
+              startLine: functionStart + 1,
+              endLine: functionEnd + 1,
+              code: functionCode,
+            });
           }
         }
 
@@ -331,20 +357,40 @@ ${analysis.inputs.length > 0 ? analysis.inputs.map(i => `- ${i.substring(0, 80)}
 
 Found ${functions.length} functions:
 
-${functions.map(f => `## ${f.name}
+${functions.length > 0 ? functions.map(f => `## ${f.name}
 **Lines**: ${f.startLine}-${f.endLine}
 
 \`\`\`pinescript
 ${f.code}
 \`\`\`
 
----`).join('\n')}`;
+---`).join('\n\n') : '_No explicit custom function definitions found._'}`;
 
         return {
           content: [
             {
               type: "text",
               text: result,
+            },
+          ],
+        };
+      }
+
+      case "get_indicator_content": {
+        const { indicatorName, startLine, endLine } = GetIndicatorContentSchema.parse(args);
+        const content = readIndicatorFile(indicatorName);
+        const lines = content.split('\n');
+
+        const start = startLine ? Math.max(1, startLine) : 1;
+        const end = endLine ? Math.min(lines.length, endLine) : lines.length;
+
+        const slice = lines.slice(start - 1, end).join('\n');
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `# Indicator: ${indicatorName} (Lines ${start}-${end} of ${lines.length})\n\n\`\`\`pinescript\n${slice}\n\`\`\``,
             },
           ],
         };
@@ -369,9 +415,10 @@ ${f.code}
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("TradingView Indicator MCP Server running on stdio");
+  console.error(`TradingView Indicator MCP Server running on stdio (Serving ${REPO_ROOT})`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(console.error);
-}
+main().catch(err => {
+  console.error("MCP server failed to start:", err);
+  process.exit(1);
+});

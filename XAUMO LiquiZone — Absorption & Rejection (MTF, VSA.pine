@@ -1,70 +1,33 @@
 // XAUMO LiquiZone — Absorption & Rejection (MTF, VSA)
-
-// XAUMO LiquiZone — Absorption & Rejection (MTF, VSA)
 // Free & open-source (MPL-2.0). Educational use only.
-
-// WHAT IT DOES
-// LiquiZone detects liquidity absorption & distribution zones using wick/volume anatomy and simple pivot structure, then plots them for both Higher Time Frame (HTF) and Lower Time Frame (LTF). An optional HTF Extension Engine projects selected historical HTF zones to the right (nearest or N zones above/below the current price) so you can track “institutional memory” into the live session.
-
-// HOW IT WORKS (LOGIC)
-// • Absorption rules (VSA-style): long wick on one side, volume > SMA(volume) × multiplier, and a small/controlled body vs full range.
-// • Structure: zones are anchored on local pivot highs/lows (left/right bars).
-// • HTF vs LTF: HTF signals are computed via request.security() on the timeframe you choose; LTF uses the chart timeframe.
-// • Extension Engine: choose Bullish / Bearish / Both, Nearest Only or By Up/Down Count, custom colors, with safe forward limits to respect Pine’s x-distance constraints.
-
-// RECOMMENDED SETUP (BEST FOR XAUUSD 15m TF)
+//
+// WHAT IT DOES:
+// LiquiZone detects liquidity absorption & distribution zones using wick/volume anatomy and simple pivot structure,
+// then plots them for both Higher Time Frame (HTF) and Lower Time Frame (LTF). An optional HTF Extension Engine 
+// projects selected historical HTF zones to the right (nearest or N zones above/below the current price) 
+// so you can track “institutional memory” into the live session.
+//
+// RECOMMENDED SETUP (BEST FOR XAUUSD 15m TF):
 // • Chart timeframe: 15m
 // • HTF timeframe: 30m
 // • Volume MA length: 20
 // • Min wick % of range: 0.30
 // • Volume over MA ×: 1.5
 // • Pivot Left/Right: 2 / 2
-// • Zone look-ahead bars: 500
-// • HTF Extension: Enabled
-// – Extension length: 500 bars
-// – Selection mode: By Up/Down Count
-// – Zones Above (Up): 1
-// – Zones Below (Down): 2
-// – Extension color(s): purple tint (opacity ~80) for both bull/bear
-// • Style: separate colors/opacity for HTF/LTF bull & bear zones (fully user-configurable)
-
-// INPUTS (KEY SETTINGS)
-// • HTF timeframe (default 30m), Volume MA length, Wick % threshold, Volume multiplier, Pivot L/R, Zone look-ahead bars (default 500).
-// • Zone Style: independent colors & opacities for HTF/LTF bull & bear zones.
-// • HTF Extension: enable toggle, extension length, side filter, selection mode, counts up/down, and custom colors for extended HTF zones.
-
-// NOTES / BEST PRACTICE
-// • Use HTF zones for context and LTF zones for execution.
-// • Combine with volume profile (POC/VAL/VAH), VWAP, delta/tape tools for confirmation.
-// • Uses pivots (confirmed after Pivot Right bars); this is a visualization/education tool, not a signal generator.
-
-// LICENSE & DISCLAIMER
-// • License: Mozilla Public License 2.0 (MPL-2.0).
-// • Educational purpose only. No financial advice. You are fully responsible for your own trading decisions.
-
-// FRAUD / SCAM WARNING
-// • This script is free and open-source. No one is authorized to sell it, rent it, or ask you for money, DMs, or “account management.”
-// • If someone impersonates the author or offers paid access, treat it as fraud/scam and report via TradingView.
-
-// CHANGELOG v1.0
-// • Initial public release: HTF/LTF absorption zones + HTF Extension Engine + full styling controls.
-
-// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © ICHIMOKUontheNILE
 
 //@version=5
 indicator("XAUMO LiquiZone — Absorption & Rejection (MTF, VSA)", "liquizone", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=200)
 
 //========= CORE INPUTS =========
 tfHTF     = input.timeframe("30", "HTF timeframe")
-lenVolMA  = input.int(9, "Volume MA length", minval=5)
+lenVolMA  = input.int(20, "Volume MA length", minval=5)
 wickPct   = input.float(0.30, "Min wick % of full range", minval=0.05, maxval=0.90, step=0.01)
 volMult   = input.float(1.5, "Volume over MA ×", minval=1.0, step=0.1)
 pivotL    = input.int(2, "Pivot Left", minval=1)
 pivotR    = input.int(2, "Pivot Right", minval=1)
 zoneLook  = input.int(500, "Zone look-ahead bars", minval=50)
 showHTF   = input.bool(true,  "Show HTF zones", inline="sh")
-showLTF   = input.bool(false,  "Show LTF zones", inline="sh")
+showLTF   = input.bool(true,  "Show LTF zones", inline="sh")
 
 //========= XAUMO FVRP • ZONE STYLE =========
 grpZoneStyle   = "🎨 XAUMO FVRP • Zone Style"
@@ -78,13 +41,13 @@ ltfBearColor   = input.color(color.orange, "LTF Bear BG",     group=grpZoneStyle
 ltfBearOpacity = input.int(82, "LTF Bear Opacity", minval=0, maxval=100, group=grpZoneStyle)
 
 // Helper creators
-// f_new_htf_bull_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(htfBullColor, htfBullOpacity), border_color=color.new(htfBullColor, 0))
-// f_new_htf_bear_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(htfBearColor, htfBearOpacity), border_color=color.new(htfBearColor, 0))
-// f_new_ltf_bull_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(ltfBullColor, ltfBullOpacity), border_color=color.new(ltfBullColor, 0))
-// f_new_ltf_bear_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(ltfBearColor, ltfBearOpacity), border_color=color.new(ltfBearColor, 0))
+f_new_htf_bull_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(htfBullColor, htfBullOpacity), border_color=color.new(htfBullColor, 0))
+f_new_htf_bear_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(htfBearColor, htfBearOpacity), border_color=color.new(htfBearColor, 0))
+f_new_ltf_bull_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(ltfBullColor, ltfBullOpacity), border_color=color.new(ltfBullColor, 0))
+f_new_ltf_bear_box(x1, y1, x2, y2) => box.new(x1, y1, x2, y2, bgcolor=color.new(ltfBearColor, ltfBearOpacity), border_color=color.new(ltfBearColor, 0))
 
 //========= WICK/BODY HELPERS =========
-// getWicks(o,h,l,c) =>
+getWicks(o, h, l, c) =>
     upper    = h - math.max(o, c)
     lower    = math.min(o, c) - l
     body     = math.abs(c - o)
@@ -105,20 +68,20 @@ vLma = ta.sma(volume, lenVolMA)
 
 //========= ABSORPTION DETECTORS =========
 // Bullish absorption: long lower wick + high volume + controlled body/close
-// bullAbs(o_,h_,l_,c_,v_,vma_) =>
-    [u, l, body, barRange] = getWicks(o_,h_,l_,c_)
+bullAbs(o_, h_, l_, c_, v_, vma_) =>
+    [u, l, body, barRange] = getWicks(o_, h_, l_, c_)
     condWick  = l >= wickPct
     condVol   = v_ > vma_ * volMult
     condClose = c_ > o_ ? true : (body <= barRange * 0.25)
-//     condWick and condVol and condClose
+    condWick and condVol and condClose
 
 // Bearish absorption: long upper wick + high volume + controlled body/close
-// bearAbs(o_,h_,l_,c_,v_,vma_) =>
-    [u, l, body, barRange] = getWicks(o_,h_,l_,c_)
+bearAbs(o_, h_, l_, c_, v_, vma_) =>
+    [u, l, body, barRange] = getWicks(o_, h_, l_, c_)
     condWick  = u >= wickPct
     condVol   = v_ > vma_ * volMult
     condClose = c_ < o_ ? true : (body <= barRange * 0.25)
-//     condWick and condVol and condClose
+    condWick and condVol and condClose
 
 //========= PIVOTS =========
 isPivotHigh = ta.pivothigh(high, pivotL, pivotR)
@@ -129,33 +92,33 @@ isPivotLow  = ta.pivotlow(low,  pivotL, pivotR)
 var box[] htfBull = array.new_box()
 var box[] htfBear = array.new_box()
 
-newBullHTF = showHTF and bullAbs(oH,hH,lH,cH,vH,vHma) and isPivotLow
-newBearHTF = showHTF and bearAbs(oH,hH,lH,cH,vH,vHma) and isPivotHigh
+newBullHTF = showHTF and bullAbs(oH, hH, lH, cH, vH, vHma) and not na(isPivotLow)
+newBearHTF = showHTF and bearAbs(oH, hH, lH, cH, vH, vHma) and not na(isPivotHigh)
 
 if newBullHTF
     b = f_new_htf_bull_box(bar_index, hH, bar_index + zoneLook, lH)
-//     array.push(htfBull, b)
+    array.push(htfBull, b)
 
 if newBearHTF
     b = f_new_htf_bear_box(bar_index, hH, bar_index + zoneLook, lH)
-//     array.push(htfBear, b)
+    array.push(htfBear, b)
 
 // LTF boxes
 var box[] ltfBull = array.new_box()
 var box[] ltfBear = array.new_box()
 
-newBullLTF = showLTF and bullAbs(open,high,low,close,volume,vLma) and isPivotLow
-newBearLTF = showLTF and bearAbs(open,high,low,close,volume,vLma) and isPivotHigh
+newBullLTF = showLTF and bullAbs(open, high, low, close, volume, vLma) and not na(isPivotLow)
+newBearLTF = showLTF and bearAbs(open, high, low, close, volume, vLma) and not na(isPivotHigh)
 
 if newBullLTF
-    b = f_new_ltf_bull_box(bar_index, ta.highest(high, pivotR + 1), bar_index + zoneLook/2, ta.lowest(low, pivotR + 1))
-//     array.push(ltfBull, b)
+    b = f_new_ltf_bull_box(bar_index, ta.highest(high, pivotR + 1), bar_index + int(zoneLook / 2), ta.lowest(low, pivotR + 1))
+    array.push(ltfBull, b)
 
 if newBearLTF
-    b = f_new_ltf_bear_box(bar_index, ta.highest(high, pivotR + 1), bar_index + zoneLook/2, ta.lowest(low, pivotR + 1))
-//     array.push(ltfBear, b)
+    b = f_new_ltf_bear_box(bar_index, ta.highest(high, pivotR + 1), bar_index + int(zoneLook / 2), ta.lowest(low, pivotR + 1))
+    array.push(ltfBear, b)
 
-// Labels
+// Labels & Signals
 plotshape(newBullHTF, title="HTF Bull Abs",  style=shape.triangleup,   color=color.lime,   size=size.tiny, location=location.belowbar, text="HTF Abs↑")
 plotshape(newBearHTF, title="HTF Bear Abs",  style=shape.triangledown, color=color.red,    size=size.tiny, location=location.abovebar, text="HTF Abs↓")
 plotshape(newBullLTF, title="LTF Bull Abs",  style=shape.circle,       color=color.teal,   size=size.tiny, location=location.belowbar, text="Abs↑")
@@ -169,7 +132,6 @@ extHTF_side      = input.string("Both", "Which HTF Zones?", options=["Bullish On
 extHTF_mode      = input.string("By Up/Down Count", "Selection Mode", options=["Nearest Only","By Up/Down Count"], group=groupExtHTF)
 extHTF_upCnt     = input.int(1, "Zones Above Price (Up)",  minval=0, group=groupExtHTF)
 extHTF_dnCnt     = input.int(2, "Zones Below Price (Down)", minval=0, group=groupExtHTF)
-// Use purple-tinted color for both extensions (matches your screenshot vibe)
 extHTF_bullCol   = input.color(color.new(color.purple, 80), "Bullish HTF Extension Color", group=groupExtHTF)
 extHTF_bearCol   = input.color(color.new(color.purple, 80), "Bearish HTF Extension Color", group=groupExtHTF)
 
@@ -185,125 +147,125 @@ var bool[]  ext_zUsed    = array.new_bool()
 maxBarsDist = 5000
 safeExt     = math.min(extHTF_len, maxBarsDist)
 
-// extend_htf_zone(int idxJ) =>
-//     bool  isBull = array.get(ext_zIsBull, idxJ)
-//     int   src    = array.get(ext_zSrc, idxJ)
-//     int   idxBox = array.get(ext_zIdx, idxJ)
-//     box   b      = src == 0 ? array.get(htfBull, idxBox) : array.get(htfBear, idxBox)
-//     color col    = isBull ? extHTF_bullCol : extHTF_bearCol
-//     box.set_right(b, bar_index + safeExt)
-//     box.set_bgcolor(b, col)
-//     box.set_border_color(b, col)
+extend_htf_zone(int idxJ) =>
+    bool  isBull = array.get(ext_zIsBull, idxJ)
+    int   src    = array.get(ext_zSrc, idxJ)
+    int   idxBox = array.get(ext_zIdx, idxJ)
+    box   b      = src == 0 ? array.get(htfBull, idxBox) : array.get(htfBear, idxBox)
+    color col    = isBull ? extHTF_bullCol : extHTF_bearCol
+    box.set_right(b, bar_index + safeExt)
+    box.set_bgcolor(b, col)
+    box.set_border_color(b, col)
 
 // Reset HTF boxes (recent only)
-// int bullCount = array.size(htfBull)
-// int bearCount = array.size(htfBear)
+int bullCount = array.size(htfBull)
+int bearCount = array.size(htfBear)
 
 if bullCount > 0
     for i = 0 to bullCount - 1
-//         box b  = array.get(htfBull, i)
-//         int lx = box.get_left(b)
+        box b  = array.get(htfBull, i)
+        int lx = box.get_left(b)
         if bar_index - lx <= maxBarsDist
-//             box.set_right(b, lx + zoneLook)
-//             box.set_bgcolor(b, color.new(htfBullColor, htfBullOpacity))
-//             box.set_border_color(b, color.new(htfBullColor, 0))
+            box.set_right(b, lx + zoneLook)
+            box.set_bgcolor(b, color.new(htfBullColor, htfBullOpacity))
+            box.set_border_color(b, color.new(htfBullColor, 0))
 
 if bearCount > 0
     for i = 0 to bearCount - 1
-//         box b  = array.get(htfBear, i)
-//         int lx = box.get_left(b)
+        box b  = array.get(htfBear, i)
+        int lx = box.get_left(b)
         if bar_index - lx <= maxBarsDist
-//             box.set_right(b, lx + zoneLook)
-//             box.set_bgcolor(b, color.new(htfBearColor, htfBearOpacity))
-//             box.set_border_color(b, color.new(htfBearColor, 0))
+            box.set_right(b, lx + zoneLook)
+            box.set_bgcolor(b, color.new(htfBearColor, htfBearOpacity))
+            box.set_border_color(b, color.new(htfBearColor, 0))
 
 // Selection logic
 if extHTF_enable and showHTF and (bullCount + bearCount > 0)
-//     array.clear(ext_zMid)
-//     array.clear(ext_zIsBull)
-//     array.clear(ext_zIsAbove)
-//     array.clear(ext_zSrc)
-//     array.clear(ext_zIdx)
-//     array.clear(ext_zUsed)
+    array.clear(ext_zMid)
+    array.clear(ext_zIsBull)
+    array.clear(ext_zIsAbove)
+    array.clear(ext_zSrc)
+    array.clear(ext_zIdx)
+    array.clear(ext_zUsed)
 
-//     bool useBull = extHTF_side == "Bullish Only" or extHTF_side == "Both"
-//     bool useBear = extHTF_side == "Bearish Only" or extHTF_side == "Both"
+    bool useBull = extHTF_side == "Bullish Only" or extHTF_side == "Both"
+    bool useBear = extHTF_side == "Bearish Only" or extHTF_side == "Both"
 
     if useBull and bullCount > 0
         for i = 0 to bullCount - 1
-//             box  b    = array.get(htfBull, i)
-//             int  lx   = box.get_left(b)
+            box  b    = array.get(htfBull, i)
+            int  lx   = box.get_left(b)
             if bar_index - lx <= maxBarsDist
-//                 float top = box.get_top(b)
-//                 float bot = box.get_bottom(b)
-//                 float mid = (top + bot) * 0.5
-//                 array.push(ext_zMid, mid)
-//                 array.push(ext_zIsBull, true)
-//                 array.push(ext_zIsAbove, mid >= close)
-//                 array.push(ext_zSrc, 0)
-//                 array.push(ext_zIdx, i)
-//                 array.push(ext_zUsed, false)
+                float top = box.get_top(b)
+                float bot = box.get_bottom(b)
+                float mid = (top + bot) * 0.5
+                array.push(ext_zMid, mid)
+                array.push(ext_zIsBull, true)
+                array.push(ext_zIsAbove, mid >= close)
+                array.push(ext_zSrc, 0)
+                array.push(ext_zIdx, i)
+                array.push(ext_zUsed, false)
 
     if useBear and bearCount > 0
         for i = 0 to bearCount - 1
-//             box  b    = array.get(htfBear, i)
-//             int  lx   = box.get_left(b)
+            box  b    = array.get(htfBear, i)
+            int  lx   = box.get_left(b)
             if bar_index - lx <= maxBarsDist
-//                 float top = box.get_top(b)
-//                 float bot = box.get_bottom(b)
-//                 float mid = (top + bot) * 0.5
-//                 array.push(ext_zMid, mid)
-//                 array.push(ext_zIsBull, false)
-//                 array.push(ext_zIsAbove, mid >= close)
-//                 array.push(ext_zSrc, 1)
-//                 array.push(ext_zIdx, i)
-//                 array.push(ext_zUsed, false)
+                float top = box.get_top(b)
+                float bot = box.get_bottom(b)
+                float mid = (top + bot) * 0.5
+                array.push(ext_zMid, mid)
+                array.push(ext_zIsBull, false)
+                array.push(ext_zIsAbove, mid >= close)
+                array.push(ext_zSrc, 1)
+                array.push(ext_zIdx, i)
+                array.push(ext_zUsed, false)
 
-//     int totalZones = array.size(ext_zMid)
+    int totalZones = array.size(ext_zMid)
 
     if totalZones > 0
         if extHTF_mode == "Nearest Only"
-//             int   bestJ   = -1
-//             float bestDst = na
+            int   bestJ   = -1
+            float bestDst = na
             for j = 0 to totalZones - 1
-//                 float mid = array.get(ext_zMid, j)
-//                 float dst = math.abs(mid - close)
+                float mid = array.get(ext_zMid, j)
+                float dst = math.abs(mid - close)
                 if na(bestDst) or dst < bestDst
-//                     bestDst := dst
-//                     bestJ   := j
+                    bestDst := dst
+                    bestJ   := j
             if bestJ != -1
-//                 extend_htf_zone(bestJ)
-//         else
+                extend_htf_zone(bestJ)
+        else
             // UP (above price)
             for n = 0 to extHTF_upCnt - 1
-//                 int   bestJ   = -1
-//                 float bestDst = na
+                int   bestJ   = -1
+                float bestDst = na
                 for j = 0 to totalZones - 1
-//                     bool isAbv = array.get(ext_zIsAbove, j)
-//                     bool used  = array.get(ext_zUsed, j)
+                    bool isAbv = array.get(ext_zIsAbove, j)
+                    bool used  = array.get(ext_zUsed, j)
                     if isAbv and not used
-//                         float mid = array.get(ext_zMid, j)
-//                         float dst = math.abs(mid - close)
+                        float mid = array.get(ext_zMid, j)
+                        float dst = math.abs(mid - close)
                         if na(bestDst) or dst < bestDst
-//                             bestDst := dst
-//                             bestJ   := j
+                            bestDst := dst
+                            bestJ   := j
                 if bestJ != -1
-//                     array.set(ext_zUsed, bestJ, true)
-//                     extend_htf_zone(bestJ)
+                    array.set(ext_zUsed, bestJ, true)
+                    extend_htf_zone(bestJ)
 
             // DOWN (below price)
             for n = 0 to extHTF_dnCnt - 1
-//                 int   bestJ   = -1
-//                 float bestDst = na
+                int   bestJ   = -1
+                float bestDst = na
                 for j = 0 to totalZones - 1
-//                     bool isAbv = array.get(ext_zIsAbove, j)
-//                     bool used  = array.get(ext_zUsed, j)
+                    bool isAbv = array.get(ext_zIsAbove, j)
+                    bool used  = array.get(ext_zUsed, j)
                     if not isAbv and not used
-//                         float mid = array.get(ext_zMid, j)
-//                         float dst = math.abs(mid - close)
+                        float mid = array.get(ext_zMid, j)
+                        float dst = math.abs(mid - close)
                         if na(bestDst) or dst < bestDst
-//                             bestDst := dst
-//                             bestJ   := j
+                            bestDst := dst
+                            bestJ   := j
                 if bestJ != -1
-//                     array.set(ext_zUsed, bestJ, true)
-//                     extend_htf_zone(bestJ)
+                    array.set(ext_zUsed, bestJ, true)
+                    extend_htf_zone(bestJ)
